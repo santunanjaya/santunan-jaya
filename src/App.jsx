@@ -87,10 +87,7 @@ export default function App() {
   const handleLogin = (e) => {
     e.preventDefault();
     let user = pengurus.find(u => u.username === loginForm.username && u.password === loginForm.password);
-    
-    if (!user && loginForm.username === 'superadmin' && loginForm.password === '123') {
-      user = { id: 'default_sa', role: 'super_admin', nama: 'Ketua RT (Default)' };
-    }
+
 
     if (user) {
       setCurrentUser(user);
