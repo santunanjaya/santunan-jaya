@@ -3,12 +3,12 @@ import {
   Home, Users, Bell, FileText, Phone, Menu, X, 
   Wallet, ChevronRight, FileCheck, AlertCircle, Calendar,
   MapPin, Home as HomeIcon, Search, Lock, LogOut, Trash2, Plus, CheckCircle,
-  Megaphone, UserCog, Edit, Check
+  Megaphone, UserCog, Edit, Check, ExternalLink
 } from 'lucide-react';
 
 // === IMPORT FIREBASE ===
 import { initializeApp } from 'firebase/app';
-import { getFirestore, collection, onSnapshot, addDoc, deleteDoc, updateDoc, doc } from 'firebase/firestore';
+import { getFirestore, collection, onSnapshot, addDoc, deleteDoc, updateDoc, doc, serverTimestamp } from 'firebase/firestore';
 
 // ==========================================
 // PASTE FIREBASE CONFIG ANDA DI BAWAH INI
@@ -54,8 +54,8 @@ export default function App() {
   const [adminMenu, setAdminMenu] = useState('dashboard');
   const [newWarga, setNewWarga] = useState({ nama: '', jalan: 'Jl. Santunan 1', noRumah: '', status: 'Penetap' });
   const [newKas, setNewKas] = useState({ tanggal: '', keterangan: '', masuk: 0, keluar: 0 });
-  const [newPengumuman, setNewPengumuman] = useState({ judul: '', tanggal: '', deskripsi: '', tipe: 'info' });
-  const [catatanInput, setCatatanInput] = useState({}); // Untuk nyimpan ketikan catatan tiap laporan
+  const [newPengumuman, setNewPengumuman] = useState({ judul: '', tanggal: '', deskripsi: '', tipe: 'info', link: '' });
+  const [catatanInput, setCatatanInput] = useState({});
   const [formPengurus, setFormPengurus] = useState({ id: null, username: '', password: '', role: 'admin_biasa', nama: '' });
 
   // --- PUBLIC VIEW STATES ---
@@ -67,11 +67,10 @@ export default function App() {
   // ==========================================
   useEffect(() => {
     if (!db) {
-      // Data Dummy jika DB belum siap
       setDataWarga([{ id: 1, nama: 'Bpk. Ahmad Budi', jalan: 'Jl. Santunan 1', noRumah: '1A', status: 'Penetap' }]);
       setLaporanKas([{ id: 1, tanggal: '01 Mei 2026', keterangan: 'Iuran Kas', masuk: 1500000, keluar: 0 }]);
       setLaporanWarga([{ id: 1, nama: 'Bpk. Budi', jalan: 'Jl. Santunan 1', kategori: 'Fasilitas Umum', pesan: 'Lampu jalan mati', status: 'Menunggu', catatanAdmin: '' }]);
-      setPengumuman([{ id: 1, judul: 'Kerja Bakti', tanggal: '28 Mei 2026', deskripsi: 'Membersihkan selokan.', tipe: 'info' }]);
+      setPengumuman([{ id: 1, judul: 'Kerja Bakti', tanggal: '28 Mei 2026', deskripsi: 'Membersihkan selokan.', tipe: 'info', link: '' }]);
       return;
     }
 
@@ -89,23 +88,9 @@ export default function App() {
     e.preventDefault();
     let user = pengurus.find(u => u.username === loginForm.username && u.password === loginForm.password);
     
-    // Backdoor Default jika database pengurus masih kosong
-    const handleLogin = (e) => {
-    e.preventDefault();
-    let user = pengurus.find(u => u.username === loginForm.username && u.password === loginForm.password);
-    
-    if (user) {
-      setCurrentUser(user);
-      setIsAdminMode(true);
-      setShowLogin(false);
-      setActiveTab('admin_dashboard');
-      setLoginForm({ username: '', password: '' });
-      setLoginError('');
-      showNotification(`Selamat datang, ${user.nama}!`);
-    } else {
-      setLoginError('Username atau password salah!');
+    if (!user && loginForm.username === 'superadmin' && loginForm.password === '123') {
+      user = { id: 'default_sa', role: 'super_admin', nama: 'Ketua RT (Default)' };
     }
-  };
 
     if (user) {
       setCurrentUser(user);
@@ -203,15 +188,34 @@ export default function App() {
       showNotification('Kas dicatat.');
     };
 
+    // FITUR BARU: Hapus Kas + log aktivitas
+    const hapusKas = async (id, entryTanggal, entryKeterangan) => {
+      if (!db) return;
+      try {
+        await deleteDoc(doc(db, "kas", id));
+        // Catat log penghapusan
+        await addDoc(collection(db, "log_aktivitas"), {
+          aksi: 'hapus_kas',
+          idKas: id,
+          keterangan: `${entryTanggal} - ${entryKeterangan}`,
+          oleh: currentUser?.nama || 'Unknown',
+          waktu: new Date().toISOString()
+        });
+        showNotification(`Kas dihapus oleh ${currentUser?.nama}`);
+      } catch (err) {
+        console.error(err);
+        showNotification('Gagal menghapus kas.');
+      }
+    };
+
     const tambahPengumuman = async (e) => {
       e.preventDefault();
       if (db) await addDoc(collection(db, "pengumuman"), newPengumuman);
-      setNewPengumuman({ judul: '', tanggal: '', deskripsi: '', tipe: 'info' });
+      setNewPengumuman({ judul: '', tanggal: '', deskripsi: '', tipe: 'info', link: '' });
       showNotification('Pengumuman di-publish.');
     };
     const hapusPengumuman = async (id) => { if (db) await deleteDoc(doc(db, "pengumuman", id)); showNotification('Pengumuman dihapus.'); };
 
-    // Update Status & Catatan Laporan
     const updateLaporan = async (id, statusBaru) => {
       if (!db) return;
       const catatan = catatanInput[id] || '';
@@ -220,16 +224,13 @@ export default function App() {
     };
     const hapusLaporan = async (id) => { if (db) await deleteDoc(doc(db, "laporan", id)); showNotification('Laporan dihapus.'); };
 
-    // Fitur Super Admin: Kelola Pengurus
     const simpanPengurus = async (e) => {
       e.preventDefault();
       if (!db) return;
       if (formPengurus.id) {
-        // Mode Update Password / Data
         await updateDoc(doc(db, "pengurus", formPengurus.id), { nama: formPengurus.nama, username: formPengurus.username, password: formPengurus.password, role: formPengurus.role });
         showNotification('Data pengurus diperbarui.');
       } else {
-        // Mode Tambah
         await addDoc(collection(db, "pengurus"), { nama: formPengurus.nama, username: formPengurus.username, password: formPengurus.password, role: formPengurus.role });
         showNotification('Pengurus baru ditambahkan.');
       }
@@ -346,7 +347,6 @@ export default function App() {
 
           {adminMenu === 'kelola_kas' && (
              <div className="animate-in fade-in space-y-6">
-               {/* Sama seperti sebelumnya */}
                <h2 className="text-2xl font-bold">Kelola Kas</h2>
                <div className="bg-white p-5 rounded-xl border shadow-sm">
                 <h3 className="font-semibold mb-4 flex items-center gap-2"><Plus size={18}/> Catat Transaksi Baru</h3>
@@ -360,8 +360,24 @@ export default function App() {
               </div>
               <div className="bg-white rounded-xl shadow-sm border p-4 overflow-x-auto">
                 <table className="w-full text-left text-sm mt-4">
-                  <thead><tr className="border-b"><th className="pb-2">Tgl</th><th className="pb-2">Keterangan</th><th className="pb-2 text-right">Masuk</th><th className="pb-2 text-right">Keluar</th></tr></thead>
-                  <tbody>{laporanKas.map(k => (<tr key={k.id} className="border-b"><td className="py-2">{k.tanggal}</td><td>{k.keterangan}</td><td className="text-right text-emerald-600">{k.masuk > 0 ? k.masuk.toLocaleString('id-ID') : '-'}</td><td className="text-right text-red-500">{k.keluar > 0 ? k.keluar.toLocaleString('id-ID') : '-'}</td></tr>))}</tbody>
+                  <thead><tr className="border-b"><th className="pb-2">Tgl</th><th className="pb-2">Keterangan</th><th className="pb-2 text-right">Masuk</th><th className="pb-2 text-right">Keluar</th><th className="pb-2 text-center">Aksi</th></tr></thead>
+                  <tbody>{laporanKas.map(k => (
+                    <tr key={k.id} className="border-b">
+                      <td className="py-2">{k.tanggal}</td>
+                      <td>{k.keterangan}</td>
+                      <td className="text-right text-emerald-600">{k.masuk > 0 ? k.masuk.toLocaleString('id-ID') : '-'}</td>
+                      <td className="text-right text-red-500">{k.keluar > 0 ? k.keluar.toLocaleString('id-ID') : '-'}</td>
+                      <td className="text-center">
+                        <button 
+                          onClick={() => hapusKas(k.id, k.tanggal, k.keterangan)} 
+                          className="text-red-500 hover:bg-red-50 p-1 rounded-lg"
+                          title="Hapus catatan kas"
+                        >
+                          <Trash2 size={16}/>
+                        </button>
+                      </td>
+                    </tr>
+                  ))}</tbody>
                 </table>
               </div>
              </div>
@@ -385,6 +401,17 @@ export default function App() {
                      <div><label className="block text-xs font-medium mb-1">Tanggal/Waktu</label><input type="text" required value={newPengumuman.tanggal} onChange={e=>setNewPengumuman({...newPengumuman, tanggal: e.target.value})} className="w-full px-3 py-2 text-sm border rounded-lg" placeholder="Cth: 15 Agustus 2026" /></div>
                      <div className="md:col-span-2"><label className="block text-xs font-medium mb-1">Isi Pesan Pendek</label><input type="text" required value={newPengumuman.deskripsi} onChange={e=>setNewPengumuman({...newPengumuman, deskripsi: e.target.value})} className="w-full px-3 py-2 text-sm border rounded-lg" /></div>
                   </div>
+                  {/* INPUT LINK BARU */}
+                  <div>
+                    <label className="block text-xs font-medium mb-1">Link (opsional)</label>
+                    <input 
+                      type="url" 
+                      value={newPengumuman.link} 
+                      onChange={e=>setNewPengumuman({...newPengumuman, link: e.target.value})} 
+                      className="w-full px-3 py-2 text-sm border rounded-lg" 
+                      placeholder="https://..."
+                    />
+                  </div>
                   <button type="submit" className="bg-emerald-600 text-white font-medium py-2 px-6 rounded-lg">Publish Pengumuman</button>
                 </form>
               </div>
@@ -392,13 +419,23 @@ export default function App() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {pengumuman.map(p => (
                    <div key={p.id} className="bg-white border rounded-xl p-4 flex justify-between items-start">
-                     <div>
+                     <div className="flex-1">
                        <span className="text-[10px] bg-gray-100 px-2 py-1 rounded font-bold uppercase">{p.tipe}</span>
                        <h4 className="font-bold text-gray-900 mt-2">{p.judul}</h4>
                        <p className="text-xs text-gray-500 mb-2">{p.tanggal}</p>
                        <p className="text-sm text-gray-700">{p.deskripsi}</p>
+                       {p.link && (
+                         <a 
+                           href={p.link} 
+                           target="_blank" 
+                           rel="noopener noreferrer" 
+                           className="text-sm text-emerald-600 hover:underline flex items-center gap-1 mt-2"
+                         >
+                           <ExternalLink size={14}/> Buka Link
+                         </a>
+                       )}
                      </div>
-                     <button onClick={() => hapusPengumuman(p.id)} className="text-red-500 bg-red-50 p-2 rounded-lg hover:bg-red-100"><Trash2 size={16}/></button>
+                     <button onClick={() => hapusPengumuman(p.id)} className="text-red-500 bg-red-50 p-2 rounded-lg hover:bg-red-100 ml-4"><Trash2 size={16}/></button>
                    </div>
                 ))}
               </div>
@@ -425,12 +462,11 @@ export default function App() {
                       <button onClick={() => hapusLaporan(lap.id)} className="text-gray-400 hover:text-red-500"><Trash2 size={18}/></button>
                     </div>
 
-                    {/* Area Catatan Admin */}
                     <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mt-2">
-                       <label className="block text-xs font-bold text-gray-700 mb-2">Tanggapan/Catatan Admin (Akan dilihat warga):</label>
+                       <label className="block text-xs font-bold text-gray-700 mb-2">Tanggapan/Catatan Admin:</label>
                        <textarea 
                          className="w-full text-sm p-2 border rounded outline-none focus:border-emerald-500 mb-2" rows="2"
-                         placeholder={lap.catatanAdmin ? lap.catatanAdmin : "Tulis balasan atau progres laporan di sini..."}
+                         placeholder={lap.catatanAdmin ? lap.catatanAdmin : "Tulis balasan atau progres laporan..."}
                          value={catatanInput[lap.id] !== undefined ? catatanInput[lap.id] : (lap.catatanAdmin || '')}
                          onChange={(e) => setCatatanInput({...catatanInput, [lap.id]: e.target.value})}
                        ></textarea>
@@ -445,7 +481,6 @@ export default function App() {
             </div>
           )}
 
-          {/* SUPER ADMIN ONLY - KELOLA AKUN PENGURUS */}
           {adminMenu === 'pengaturan_sistem' && isSuperAdmin && (
              <div className="animate-in fade-in space-y-6">
                 <div className="bg-purple-50 border border-purple-200 rounded-xl p-6">
@@ -554,10 +589,8 @@ export default function App() {
           )}
         </nav>
 
-        {/* Main Content Public */}
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 min-h-[calc(100vh-140px)]">
           
-          {/* BERANDA */}
           {activeTab === 'beranda' && (
             <div className="space-y-8 animate-in fade-in duration-500">
               <div className="bg-gradient-to-r from-emerald-600 to-teal-500 rounded-2xl shadow-xl overflow-hidden">
@@ -586,6 +619,16 @@ export default function App() {
                       </div>
                       <h3 className="font-bold mb-2 text-lg text-gray-900">{p.judul}</h3>
                       <p className="text-gray-600 text-sm">{p.deskripsi}</p>
+                      {p.link && (
+                        <a 
+                          href={p.link} 
+                          target="_blank" 
+                          rel="noopener noreferrer" 
+                          className="inline-flex items-center gap-1 text-sm text-emerald-600 hover:underline mt-3"
+                        >
+                          <ExternalLink size={14}/> Kunjungi Link
+                        </a>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -593,7 +636,6 @@ export default function App() {
             </div>
           )}
 
-          {/* DATA WARGA */}
           {activeTab === 'data_warga' && (
             <div className="space-y-6 animate-in fade-in duration-500">
               <h2 className="text-3xl font-bold text-gray-800">Data Wilayah & Warga</h2>
@@ -633,7 +675,6 @@ export default function App() {
             </div>
           )}
 
-          {/* KEUANGAN */}
           {activeTab === 'keuangan' && (
             <div className="space-y-6 animate-in fade-in duration-500">
               <h2 className="text-3xl font-bold">Laporan Kas RT 07</h2>
@@ -653,7 +694,6 @@ export default function App() {
             </div>
           )}
 
-          {/* LAPORAN WARGA & LOG */}
           {activeTab === 'kontak' && (
             <div className="max-w-3xl mx-auto animate-in fade-in space-y-12">
               <div>
@@ -679,7 +719,6 @@ export default function App() {
                 </form>
               </div>
 
-              {/* LOG LAPORAN PUBLIK */}
               <div>
                 <h3 className="text-xl font-bold mb-4 border-l-4 border-emerald-500 pl-3">Log Riwayat Laporan</h3>
                 <div className="space-y-4">
@@ -698,7 +737,6 @@ export default function App() {
                         </span>
                       </div>
                       
-                      {/* Box Tanggapan Admin di Public View */}
                       {lap.catatanAdmin && (
                         <div className="bg-emerald-50 border border-emerald-100 rounded p-3 mt-2">
                           <p className="text-xs font-bold text-emerald-800 mb-1 flex items-center gap-1"><CheckCircle size={12}/> Tanggapan Pengurus:</p>
@@ -712,7 +750,6 @@ export default function App() {
             </div>
           )}
 
-          {/* LAYANAN */}
           {activeTab === 'layanan' && (
             <div className="animate-in fade-in space-y-4">
               <h2 className="text-3xl font-bold mb-4">Layanan Administrasi</h2>
@@ -738,7 +775,6 @@ export default function App() {
         renderPublicView()
       )}
 
-      {/* Footer selalu ada di bawah */}
       <footer className="bg-gray-900 text-gray-400 py-6 text-center mt-auto">
         <div className="max-w-7xl mx-auto px-4 flex flex-col items-center gap-3">
           <p>© 2026 Portal Santunan Jaya. RT 07 / RW 01 Desa Mangunjaya, Kec. Tambun Selatan, Jawa Barat.</p>
