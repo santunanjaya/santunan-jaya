@@ -48,6 +48,15 @@ export default function App() {
   const [laporanKas, setLaporanKas] = useState([]);
   const [laporanWarga, setLaporanWarga] = useState([]);
 
+  // --- ADMIN DASHBOARD STATES ---
+  const [adminMenu, setAdminMenu] = useState('dashboard');
+  const [newWarga, setNewWarga] = useState({ nama: '', jalan: 'Jl. Santunan 1', noRumah: '', status: 'Tetap' });
+  const [newKas, setNewKas] = useState({ tanggal: '', keterangan: '', masuk: 0, keluar: 0 });
+
+  // --- PUBLIC VIEW STATES ---
+  const [searchQuery, setSearchQuery] = useState('');
+  const [formLapor, setFormLapor] = useState({ nama: '', jalan: 'Jl. Santunan 1', pesan: '', kategori: 'Fasilitas Umum' });
+
   // Simulasi tabel pengguna (Akun Admin)
   const usersDB = [
     { username: 'superadmin', password: '123', role: 'super_admin', nama: 'Ketua RT 07' },
@@ -135,8 +144,10 @@ export default function App() {
     setIsMobileMenuOpen(false);
   };
 
-  // --- KOMPONEN NOTIFIKASI ---
-  const NotificationBar = () => {
+  // ==========================================
+  // VIEW RENDERERS
+  // ==========================================
+  const renderNotificationBar = () => {
     if (!notification) return null;
     return (
       <div className="fixed top-20 right-4 z-50 bg-emerald-600 text-white px-4 py-3 rounded-lg shadow-lg flex items-center gap-2 animate-in slide-in-from-right">
@@ -146,10 +157,7 @@ export default function App() {
     );
   };
 
-  // ==========================================
-  // VIEW: MODAL LOGIN
-  // ==========================================
-  const LoginModal = () => (
+  const renderLoginModal = () => (
     <div className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200">
         <div className="bg-emerald-700 p-6 text-white flex justify-between items-center">
@@ -189,15 +197,7 @@ export default function App() {
     </div>
   );
 
-  // ==========================================
-  // VIEW: ADMIN DASHBOARD (TERHUBUNG FIREBASE)
-  // ==========================================
-  const AdminDashboard = () => {
-    const [adminMenu, setAdminMenu] = useState('dashboard');
-    
-    const [newWarga, setNewWarga] = useState({ nama: '', jalan: 'Jl. Santunan 1', noRumah: '', status: 'Tetap' });
-    const [newKas, setNewKas] = useState({ tanggal: '', keterangan: '', masuk: 0, keluar: 0 });
-
+  const renderAdminDashboard = () => {
     const isSuperAdmin = currentUser?.role === 'super_admin';
 
     const hapusWarga = async (id) => {
@@ -456,17 +456,11 @@ export default function App() {
     );
   };
 
-  // ==========================================
-  // VIEW: PUBLIC WEBSITE
-  // ==========================================
-  const PublicView = () => {
-    const [searchQuery, setSearchQuery] = useState('');
+  const renderPublicView = () => {
     const filteredWarga = dataWarga.filter(warga => 
       warga.nama.toLowerCase().includes(searchQuery.toLowerCase()) ||
       warga.jalan.toLowerCase().includes(searchQuery.toLowerCase())
     );
-
-    const [formLapor, setFormLapor] = useState({ nama: '', jalan: 'Jl. Santunan 1', pesan: '', kategori: 'Fasilitas Umum' });
 
     const navItems = [
       { id: 'beranda', label: 'Beranda', icon: <Home size={18} /> },
@@ -650,17 +644,17 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-gray-50 font-sans text-gray-800 flex flex-col">
-      <NotificationBar />
+      {renderNotificationBar()}
       
-      {showLogin && <LoginModal />}
+      {showLogin && renderLoginModal()}
 
       {/* Render based on Mode */}
       {isAdminMode ? (
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full flex-1">
-          <AdminDashboard />
+          {renderAdminDashboard()}
         </main>
       ) : (
-        <PublicView />
+        renderPublicView()
       )}
 
       {/* Footer selalu ada di bawah */}
